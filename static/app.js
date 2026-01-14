@@ -1,0 +1,344 @@
+// DOM references
+const companySearch         = document.getElementById('companySearch');
+const companyList           = document.getElementById('companyList');
+const companyScreen         = document.getElementById('companyScreen');
+const companyDetailScreen   = document.getElementById('companyDetailScreen');
+const currentCompanyHeading = document.getElementById('currentCompanyHeading');
+
+const newSheetNameInput = document.getElementById('newSheetName');
+const cloneSheetBtn     = document.getElementById('cloneSheetBtn');
+
+const sheetTabs  = document.getElementById('sheetTabs');
+const sheetTable = document.getElementById('sheetTable');
+
+const statusHome = document.getElementById('statusHome');
+const statusDiv  = document.getElementById('status');
+
+const reloadBtn = document.getElementById('reloadBtn');
+const saveBtn   = document.getElementById('saveBtn');
+const backBtn   = document.getElementById('backBtn');
+
+// State
+let allCompanies       = [];
+let currentCompanyId   = null;
+let currentCompanyName = null;
+let currentSheetName   = null;
+let lastEditable       = [];  // editable mask for current sheet
+
+// expose to window so index.html can read them
+window.currentCompanyId   = null;
+window.currentCompanyName = null;
+window.currentSheetName   = null;
+
+// ---------- Screen helpers ---------- //
+
+function showCompanyListScreen() {
+    companyScreen.style.display       = 'block';
+    companyDetailScreen.style.display = 'none';
+
+    currentCompanyId   = null;
+    currentCompanyName = null;
+    currentSheetName   = null;
+
+    window.currentCompanyId   = null;
+    window.currentCompanyName = null;
+    window.currentSheetName   = null;
+
+    sheetTabs.innerHTML  = '';
+    sheetTable.innerHTML = '';
+
+    if (window.refreshLockDisplays) window.refreshLockDisplays();
+}
+
+function showCompanyDetailScreen() {
+    companyScreen.style.display       = 'none';
+    companyDetailScreen.style.display = 'block';
+}
+
+// ---------- Load & filter companies ---------- //
+
+async function loadCompanies() {
+    try {
+        const res = await fetch('/companies');
+        const data = await res.json();
+        allCompanies = data || [];
+        renderCompanyList(allCompanies);
+        statusHome.textContent = 'Type to search and select a company.';
+    } catch (err) {
+        console.error(err);
+        statusHome.textContent = 'Error loading companies';
+    }
+}
+
+function renderCompanyList(list) {
+    companyList.innerHTML = '';
+    list.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'company-row';
+        div.textContent = `${c.CompanyId} - ${c.CompanyName}`;
+        div.addEventListener('click', () => selectCompany(c));
+        companyList.appendChild(div);
+    });
+}
+
+// live filter
+companySearch.addEventListener('input', () => {
+    const q = companySearch.value.toLowerCase();
+    const filtered = allCompanies.filter(c =>
+        (c.CompanyId || '').toLowerCase().includes(q) ||
+        (c.CompanyName || '').toLowerCase().includes(q)
+    );
+    renderCompanyList(filtered);
+});
+
+// ---------- Enter company -> load sheet tabs ---------- //
+
+async function selectCompany(c) {
+    currentCompanyId   = c.CompanyId;
+    currentCompanyName = c.CompanyName;
+    currentSheetName   = null;
+
+    window.currentCompanyId   = currentCompanyId;
+    window.currentCompanyName = currentCompanyName;
+    window.currentSheetName   = currentSheetName;
+
+    currentCompanyHeading.textContent =
+        `Company: ${currentCompanyId} – ${currentCompanyName}`;
+    showCompanyDetailScreen();
+
+    if (window.refreshLockDisplays) window.refreshLockDisplays();
+
+    statusDiv.textContent = `Selected ${currentCompanyName}. Loading sheets...`;
+
+    try {
+        const res    = await fetch(`/company/${encodeURIComponent(currentCompanyId)}/sheets`);
+        const sheets = await res.json();
+
+        sheetTabs.innerHTML  = '';
+        sheetTable.innerHTML = '';
+
+        sheets.forEach(s => {
+            const tab = document.createElement('div');
+            tab.className = 'sheet-tab';
+            tab.textContent = s.sheetName;
+            tab.addEventListener('click', () => selectSheetTab(s.sheetName));
+            sheetTabs.appendChild(tab);
+        });
+
+        if (sheets.length > 0) {
+            selectSheetTab(sheets[0].sheetName);
+        } else {
+            statusDiv.textContent = `No sheets found for ${currentCompanyName}.`;
+        }
+    } catch (err) {
+        console.error(err);
+        statusDiv.textContent = 'Error loading sheet list';
+    }
+}
+
+function selectSheetTab(sheetName) {
+    currentSheetName = sheetName;
+    window.currentSheetName = currentSheetName;
+
+    document.querySelectorAll('.sheet-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.textContent === sheetName);
+    });
+
+    if (window.refreshLockDisplays) window.refreshLockDisplays();
+
+    if (currentCompanyId && currentSheetName) {
+        loadSheet(currentCompanyId, currentSheetName);
+    }
+}
+
+// ---------- Load sheet (values + editable mask) ---------- //
+
+async function loadSheet(companyId, sheetName) {
+    try {
+        statusDiv.textContent =
+            `Loading ${sheetName} for ${currentCompanyName || companyId}...`;
+
+        const res = await fetch(
+            `/sheet/${encodeURIComponent(companyId)}?sheet=${encodeURIComponent(sheetName)}`
+        );
+        const json = await res.json();
+
+        const values   = json.values || [];
+        const editable = json.editable || [];
+        lastEditable   = editable;
+
+        sheetTable.innerHTML = '';
+
+        values.forEach((row, rIdx) => {
+            const tr = document.createElement('tr');
+
+            row.forEach((cellVal, cIdx) => {
+                const cellTag = rIdx === 0 ? 'th' : 'td';
+                const cell = document.createElement(cellTag);
+                cell.textContent = cellVal;
+
+                if (rIdx === 0) {
+                    // header row
+                    cell.contentEditable = false;
+                } else {
+                    const canEdit =
+                        editable[rIdx] && typeof editable[rIdx][cIdx] === 'boolean'
+                            ? editable[rIdx][cIdx]
+                            : true;
+
+                    if (canEdit) {
+                        // editable = white
+                        cell.contentEditable = true;
+                        cell.style.backgroundColor = '#ffffff';
+                    } else {
+                        // formula = yellow
+                        cell.contentEditable = false;
+                        cell.style.backgroundColor = '#fff9d7';
+                    }
+
+                    // right-align numeric columns (all except first col)
+                    if (cIdx > 0) {
+                        cell.classList.add('numeric');
+                    }
+                }
+
+                tr.appendChild(cell);
+            });
+
+            sheetTable.appendChild(tr);
+        });
+
+        statusDiv.textContent =
+            `Loaded ${values.length} rows for ${json.company.CompanyName} — sheet ${json.sheet}.`;
+    } catch (err) {
+        console.error(err);
+        statusDiv.textContent = 'Error loading sheet';
+    }
+}
+
+// ---------- Save sheet (only editable cells) ---------- //
+
+async function saveSheet() {
+    const cid   = currentCompanyId;
+    const sheet = currentSheetName;
+    if (!cid || !sheet) return;
+
+    const rows = [];
+    sheetTable.querySelectorAll('tr').forEach(tr => {
+        const row = [];
+        tr.querySelectorAll('th, td').forEach(cell => {
+            row.push(cell.textContent);
+        });
+        rows.push(row);
+    });
+
+    statusDiv.textContent = 'Saving...';
+
+    try {
+        const res = await fetch(
+            `/sheet/${encodeURIComponent(cid)}/update?sheet=${encodeURIComponent(sheet)}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    values: rows,
+                    editable: lastEditable
+                })
+            }
+        );
+        const json = await res.json();
+        if (res.ok) {
+            statusDiv.textContent =
+                `Saved ${json.rows} rows for ${cid} — sheet ${json.sheet}.`;
+        } else {
+            statusDiv.textContent = `Error: ${json.error || 'Unknown error'}`;
+        }
+    } catch (err) {
+        console.error(err);
+        statusDiv.textContent = 'Error saving sheet';
+    }
+}
+
+// ---------- Clone sheet from APR ---------- //
+
+async function reloadSheetTabsAndOpen(targetName) {
+    if (!currentCompanyId) return;
+
+    const res    = await fetch(`/company/${encodeURIComponent(currentCompanyId)}/sheets`);
+    const sheets = await res.json();
+
+    sheetTabs.innerHTML = '';
+    sheets.forEach(s => {
+        const tab = document.createElement('div');
+        tab.className = 'sheet-tab';
+        tab.textContent = s.sheetName;
+        tab.addEventListener('click', () => selectSheetTab(s.sheetName));
+        sheetTabs.appendChild(tab);
+    });
+
+    const exists = sheets.some(s => s.sheetName === targetName);
+    if (exists) {
+        selectSheetTab(targetName);
+    }
+}
+
+cloneSheetBtn.addEventListener('click', async () => {
+    const cid = currentCompanyId;
+    const newName = (newSheetNameInput.value || '').trim();
+    if (!cid || !newName) {
+        alert('Enter a new sheet name (e.g. DEC 25).');
+        return;
+    }
+
+    const sourceTemplate = 'APR 25';  // change if your template sheet name differs
+
+    statusDiv.textContent =
+        `Creating sheet '${newName}' from '${sourceTemplate}'...`;
+
+    try {
+        const res = await fetch(
+            `/sheet/${encodeURIComponent(cid)}/clone`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_sheet: sourceTemplate,
+                    new_sheet: newName
+                })
+            }
+        );
+        const json = await res.json();
+        if (!res.ok) {
+            statusDiv.textContent = `Error: ${json.error || 'Failed to clone sheet'}`;
+            return;
+        }
+
+        await reloadSheetTabsAndOpen(newName);
+        statusDiv.textContent =
+            `Created new sheet '${newName}' from '${sourceTemplate}'.`;
+    } catch (err) {
+        console.error(err);
+        statusDiv.textContent = 'Error creating new sheet';
+    }
+});
+
+// ---------- Buttons & init ---------- //
+
+reloadBtn.addEventListener('click', () => {
+    if (currentCompanyId && currentSheetName) {
+        loadSheet(currentCompanyId, currentSheetName);
+    }
+});
+
+saveBtn.addEventListener('click', () => {
+    saveSheet();
+});
+
+backBtn.addEventListener('click', () => {
+    showCompanyListScreen();
+});
+
+window.addEventListener('load', () => {
+    showCompanyListScreen();
+    loadCompanies();
+});
