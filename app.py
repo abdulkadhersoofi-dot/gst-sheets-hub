@@ -1,17 +1,32 @@
 from flask import Flask, jsonify, request, render_template
 import gspread
-from gspread.utils import ValueRenderOption  # for formula-aware reads
+from gspread.utils import ValueRenderOption
 from gspread.exceptions import APIError
 
-# ---------- CONFIG ----------
-MASTER_CONFIG_ID = "1ZAU_kvQEc6_B6-dwL6QdvbUpWkN52kE1zVQHcxBG7Lk"  # GST – Master Config sheet ID
-SERVICE_ACCOUNT_FILE = "service_account.json"
-# Master Config columns expected:
-#   CompanyId | CompanyName | SpreadsheetId | (optional extra columns)
-# ----------------------------------------
+import os
+import json
+import time
 
+# ---------- CONFIG ----------
+MASTER_CONFIG_ID = "1ZAU_kvQEc6_B6-dwL6QdvbUpWkN52kE1zVQHcxBG7Lk"  # GST – Master Config
+
+# ---------- GOOGLE SHEETS AUTH VIA ENV ----------
+# Render: set env var SERVICE_ACCOUNT_JSON = full JSON of service account
+SERVICE_ACCOUNT_JSON = os.environ.get("SERVICE_ACCOUNT_JSON")
+
+if not SERVICE_ACCOUNT_JSON:
+    raise RuntimeError("SERVICE_ACCOUNT_JSON env var is not set")
+
+creds_info = json.loads(SERVICE_ACCOUNT_JSON)
+gc = gspread.service_account_from_dict(creds_info)
+
+# ---------- FLASK APP ----------
 app = Flask(__name__)
-gc = gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
+
+# --------- Simple optional caching for Master Config ---------
+companies_cache = None
+companies_cache_ts = 0
+CACHE_TTL_SECONDS = 60  # cache Master Config for 60 seconds
 
 
 def load_companies():
@@ -23,9 +38,17 @@ def load_companies():
       - CompanyName
       - SpreadsheetId
     """
+    global companies_cache, companies_cache_ts
+    now = time.time()
+    if companies_cache is not None and (now - companies_cache_ts) < CACHE_TTL_SECONDS:
+        return companies_cache
+
     sh = gc.open_by_key(MASTER_CONFIG_ID)
     ws = sh.get_worksheet(0)  # first tab
     records = ws.get_all_records()
+
+    companies_cache = records
+    companies_cache_ts = now
     return records
 
 
@@ -73,7 +96,7 @@ def list_company_sheets(company_id):
     sheet_list = [
         {"sheetName": ws.title, "index": ws.index}
         for ws in sh.worksheets()
-    ]  # worksheets() is the standard way to list tabs.[web:347]
+    ]
     return jsonify(sheet_list)
 
 
@@ -102,7 +125,7 @@ def get_company_sheet(company_id):
 
     sh = gc.open_by_key(spreadsheet_id)
     try:
-        ws = sh.worksheet(sheet_name)  # select tab by title.[web:347]
+        ws = sh.worksheet(sheet_name)  # select tab by title
     except Exception as e:
         return jsonify({"error": f"Sheet '{sheet_name}' not found: {e}"}), 404
 
@@ -112,7 +135,7 @@ def get_company_sheet(company_id):
     # 2) Same range, but formulas preserved
     values_formula = ws.get_values(
         value_render_option=ValueRenderOption.formula
-    )  # formulas as text, e.g. "=SUM(A1:A5)".[web:342][web:345]
+    )
 
     # Build editable mask: False if formula, True otherwise
     editable_mask = []
@@ -178,7 +201,7 @@ def update_company_sheet(company_id):
     # Get current sheet with formulas preserved
     current = ws.get_values(
         value_render_option=ValueRenderOption.formula
-    )  # formulas remain as text so we don't lose them.[web:342]
+    )
 
     # Merge new values into current only where editable == True
     rows = min(len(current), len(new_values))
@@ -193,7 +216,7 @@ def update_company_sheet(company_id):
             if can_edit:
                 current[r][c] = new_values[r][c]
 
-    # Write merged data back starting at A1, letting Sheets interpret input
+    # Write merged data back starting at A1
     ws.update("A1", current, value_input_option="USER_ENTERED")
     return jsonify({"status": "ok", "rows": rows, "sheet": sheet_name})
 
@@ -235,47 +258,39 @@ def clone_company_sheet(company_id):
     except Exception as e:
         return jsonify({"error": f"Source sheet '{source_name}' not found: {e}"}), 404
 
-    # 2) Duplicate entire sheet structure (formats + formulas + values)
+    # 2) Duplicate entire sheet structure
     try:
         duplicated_ws = sh.duplicate_sheet(src_ws.id, new_sheet_name=new_name)
     except APIError as e:
         return jsonify({"error": f"Cannot create sheet '{new_name}': {e}"}), 400
 
-    new_ws_obj = duplicated_ws  # Worksheet instance.[web:347]
+    new_ws_obj = duplicated_ws  # Worksheet instance
 
     # 3) Get formulas/values from new sheet
     formulas = new_ws_obj.get_values(
         value_render_option=ValueRenderOption.formula
-    )  # formulas as text, plain values otherwise.[web:342][web:345]
+    )
 
-    # 4) Build cleaned matrix:
-    #    - keep all formulas
-    #    - keep all text (headings)
-    #    - clear only numeric values
+    # 4) Build cleaned matrix: keep formulas & text, clear numbers
     cleaned = []
     for row in formulas:
         cleaned_row = []
         for val in row:
-            # keep formulas
             if isinstance(val, str) and val.startswith("="):
                 cleaned_row.append(val)
             else:
-                # attempt to parse as number; if numeric, clear it
                 s = str(val).strip()
                 if s == "":
-                    # empty already
                     cleaned_row.append("")
                 else:
                     try:
                         float(s.replace(",", ""))
-                        # numeric -> clear
                         cleaned_row.append("")
                     except (ValueError, TypeError):
-                        # not numeric -> heading/label/text -> keep
                         cleaned_row.append(val)
         cleaned.append(cleaned_row)
 
-    # 5) Write cleaned data back to new sheet
+    # 5) Write cleaned data back
     new_ws_obj.update("A1", cleaned, value_input_option="USER_ENTERED")
 
     return jsonify({
