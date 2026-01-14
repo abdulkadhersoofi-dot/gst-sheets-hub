@@ -1,511 +1,365 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8">
-    <title>ARFA – GST Sheets Hub</title>
-    <link rel="icon" href="{{ url_for('static', filename='favicon2.jpeg') }}">
+  <head>
+    <meta charset="utf-8" />
+    <title>ARFA GST Sheets Hub</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon2.jpeg') }}" />
+
     <style>
-        :root {
-            --bg-dark: #02252e;
-            --card-bg: #ffffff;
-            --accent: #0bbf6b;
-            --accent-dark: #079455;
-            --border-soft: #e2e8f0;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --pill-bg: #f1f5f9;
-        }
+      :root {
+        --bg-dark: #02252e;
+        --card-bg: #ffffff;
+        --accent: #0bbf6b;
+        --accent-dark: #079455;
+        --border-soft: #e2e8f0;
+        --text-main: #0f172a;
+        --text-muted: #64748b;
+        --pill-bg: #f1f5f9;
+      }
 
-        * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
 
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: radial-gradient(circle at top, #064663 0, #02151d 45%, #020617 100%);
-            color: var(--text-main);
-        }
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: radial-gradient(circle at top, #064663 0, #02151d 45%, #020617 100%);
+        color: var(--text-main);
+      }
 
-        .page {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 32px 16px;
-        }
+      .page {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 32px 16px;
+      }
 
+      .shell {
+        width: 100%;
+        max-width: 1200px;
+        background: linear-gradient(135deg, #042f3a, #021920);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+      }
+
+      .card {
+        background: var(--card-bg);
+        border-radius: 16px;
+        padding: 20px 20px 18px 20px;
+        box-shadow: 0 10px 35px rgba(15, 23, 42, 0.18);
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 16px;
+      }
+
+      .logo-img {
+        border-radius: 12px;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+      }
+
+      .header-text h1 {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .header-text p {
+        margin: 2px 0 0;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .section-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.13em;
+        color: var(--text-muted);
+        margin: 12px 0 6px;
+      }
+
+      /* Screen 1 – company selection */
+      #companyScreen {
+        text-align: center;
+      }
+
+      .company-panel {
+        border-radius: 12px;
+        background: #f8fafc;
+        border: 1px solid var(--border-soft);
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        max-height: 520px;
+      }
+
+      #companySearch {
+        width: 100%;
+        padding: 6px 9px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        font-size: 13px;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+
+      #companySearch:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2);
+      }
+
+      #companyList {
+        flex: 1;
+        overflow: auto;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        text-align: left;
+      }
+
+      .company-row {
+        padding: 4px 8px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .company-row:hover {
+        background: #eef2ff;
+      }
+
+      .company-row.active {
+        background: #dbeafe;
+        font-weight: 600;
+      }
+
+      .status-bar {
+        margin: 8px 2px 0;
+        font-size: 12px;
+        color: var(--text-muted);
+        text-align: center;
+      }
+
+      /* Screen 2 – inside a company */
+      #companyDetailScreen {
+        display: none;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: #f8fafc;
+        border: 1px solid var(--border-soft);
+        margin: 8px 0;
+      }
+
+      button {
+        border-radius: 999px;
+        border: none;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: #ffffff;
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-dark);
+      }
+
+      .btn-soft {
+        background: var(--pill-bg);
+        color: var(--text-main);
+      }
+
+      .sheet-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 4px 2px 6px;
+        border-bottom: 1px solid #e5e7eb;
+        overflow-x: auto;
+      }
+
+      .sheet-tab {
+        padding: 4px 10px;
+        font-size: 12px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .sheet-tab.active {
+        background: #0bbf6b;
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      .table-shell {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #ffffff;
+        overflow: hidden;
+      }
+
+      .table-scroll {
+        overflow: auto;
+        max-height: 60vh;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 11.5px;
+      }
+
+      td,
+      th {
+        border: 1px solid #e5e7eb;
+        padding: 3px 5px;
+        min-width: 70px;
+      }
+
+      thead th {
+        font-weight: 600;
+        background: #f1f5f9;
+        color: #0f172a;
+        text-align: center;
+      }
+
+      .numeric {
+        text-align: right;
+      }
+
+      tbody tr:nth-child(even) td {
+        background: #fdfdf6;
+      }
+
+      tbody tr:hover td {
+        background: #fef9c3;
+      }
+
+      /* Locked cells: headings, labels, formulas */
+      .locked-cell {
+        background: #fff9d7;
+      }
+
+      .status {
+        color: #0f766e;
+        text-align: left;
+      }
+
+      @media (max-width: 700px) {
         .shell {
-            width: 100%;
-            max-width: 1200px;
-            background: linear-gradient(135deg, #042f3a, #021920);
-            border-radius: 18px;
-            padding: 20px;
-            box-shadow: 0 24px 70px rgba(0,0,0,0.45);
+          padding: 14px;
         }
-
-        .card {
-            background: var(--card-bg);
-            border-radius: 16px;
-            padding: 20px 20px 18px 20px;
-            box-shadow: 0 10px 35px rgba(15,23,42,0.18);
-        }
-
-        .header {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            margin-bottom: 16px;
-        }
-
-        .header-text h1 {
-            margin: 0;
-            font-size: 20px;
-            letter-spacing: 0.06em;
-        }
-
-        .header-text p {
-            margin: 2px 0 0;
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        .section-title {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.13em;
-            color: var(--text-muted);
-            margin: 12px 0 6px;
-        }
-
-        /* Screen 1: company selection */
-
-        #companyScreen {
-            text-align: center;
-        }
-
-        .company-panel {
-            border-radius: 12px;
-            background: #f8fafc;
-            border: 1px solid var(--border-soft);
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            max-height: 520px;
-        }
-
-        #companySearch {
-            width: 100%;
-            padding: 6px 9px;
-            border-radius: 8px;
-            border: 1px solid #cbd5e1;
-            font-size: 13px;
-            margin-bottom: 8px;
-            text-align: center;
-        }
-
-        #companySearch:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 1px rgba(34,197,94,0.2);
-        }
-
-        #companyList {
-            flex: 1;
-            overflow: auto;
-            border-radius: 8px;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            text-align: left;
-        }
-
-        .company-row {
-            padding: 4px 8px;
-            font-size: 13px;
-            cursor: pointer;
-        }
-
-        .company-row:hover {
-            background: #eef2ff;
-        }
-
-        .company-row.active {
-            background: #dbeafe;
-            font-weight: 600;
-        }
-
-        .status-bar {
-            margin: 8px 2px 0;
-            font-size: 12px;
-            color: var(--text-muted);
-            text-align: center;
-        }
-
-        /* Screen 2: inside a company */
-
-        #companyDetailScreen {
-            display: none;
-        }
-
-        .toolbar {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            padding: 8px 10px;
-            border-radius: 12px;
-            background: #f8fafc;
-            border: 1px solid var(--border-soft);
-            margin: 8px 0;
-        }
-
-        button {
-            border-radius: 999px;
-            border: none;
-            padding: 6px 14px;
-            font-size: 13px;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-dark);
-        }
-
-        .btn-soft {
-            background: var(--pill-bg);
-            color: var(--text-main);
-        }
-
-        .sheet-tabs {
-            display: flex;
-            gap: 4px;
-            padding: 4px 2px 6px;
-            border-bottom: 1px solid #e5e7eb;
-            overflow-x: auto;
-        }
-
-        .sheet-tab {
-            padding: 4px 10px;
-            font-size: 12px;
-            border-radius: 999px;
-            background: #f1f5f9;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-
-        .sheet-tab.active {
-            background: #0bbf6b;
-            color: #ffffff;
-            font-weight: 600;
-        }
-
-        .table-shell {
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
-            background: #ffffff;
-            overflow: hidden;
-        }
-
-        .table-scroll {
-            overflow: auto;
-            max-height: 60vh;
-        }
-
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            font-size: 11.5px;
-        }
-
-        td, th {
-            border: 1px solid #e5e7eb;
-            padding: 3px 5px;
-            min-width: 70px;
-        }
-
-        thead th {
-            font-weight: 600;
-            background: #f1f5f9;
-            color: #0f172a;
-            text-align: center;
-        }
-
-        .numeric { text-align: right; }
-
-        tbody tr:nth-child(even) td {
-            background: #fdfdf6;
-        }
-
-        tbody tr:hover td {
-            background: #fef9c3;
-        }
-
-        /* editable white, formula yellow */
-        td[contenteditable="true"]  { background: #ffffff; }
-        td[contenteditable="false"] { background: #fff9d7; }
-
-        #status { color: #0f766e; text-align: left; }
-
-        /* Right-side actions panel for clone + lock */
-        .actions-panel {
-            border-radius: 12px;
-            background: #f8fafc;
-            border: 1px solid var(--border-soft);
-            padding: 10px;
-            margin-top: 10px;
-        }
-
-        .actions-grid {
-            display: grid;
-            grid-template-columns: 1.4fr 1.6fr;
-            gap: 10px;
-        }
-
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            font-size: 12px;
-        }
-
-        .field input[type="text"],
-        .field input[type="password"],
-        .field input[type="file"] {
-            font-size: 12px;
-        }
-
-        .field input,
-        .field select {
-            border-radius: 8px;
-            border: 1px solid #cbd5e1;
-            padding: 5px 8px;
-            outline: none;
-        }
-
-        .field input:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 1px rgba(11, 191, 107, 0.2);
-        }
-
-        .subtle {
-            font-size: 11px;
-            color: var(--text-muted);
-        }
-
-        .divider {
-            height: 1px;
-            background: #e2e8f0;
-            margin: 6px 0;
-        }
-
-        @media (max-width: 900px) {
-            .actions-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 700px) {
-            .shell { padding: 14px; }
-        }
+      }
     </style>
-</head>
-<body>
-<div class="page">
-    <div class="shell">
+  </head>
+
+  <body>
+    <div class="page">
+      <div class="shell">
         <div class="card">
-            <!-- Common header -->
-            <div class="header">
-                <img src="{{ url_for('static', filename='image.jpeg') }}"
-                     alt="logo" class="logo-img" height="50" width="50">
-                <div class="header-text">
-                    <h1>ARFA – GST Sheets Hub</h1>
-                    <p>Central console for company-wise GST workbooks</p>
-                </div>
+          <!-- Common header -->
+          <div class="header">
+            <img
+              src="{{ url_for('static', filename='image.jpeg') }}"
+              alt="logo"
+              class="logo-img"
+              height="50"
+              width="50"
+            />
+            <div class="header-text">
+              <h1>ARFA GST Sheets Hub</h1>
+              <p>Central console for company-wise GST workbooks</p>
+            </div>
+          </div>
+
+          <!-- SCREEN 1: company selection -->
+          <div id="companyScreen">
+            <div class="section-title">Select company</div>
+            <div class="company-panel" style="max-width: 480px; margin: 0 auto">
+              <input
+                id="companySearch"
+                type="text"
+                placeholder="Search company code / name..."
+              />
+              <div id="companyList"></div>
+            </div>
+            <div class="status-bar" id="statusHome">
+              Type to search and select a company.
+            </div>
+          </div>
+
+          <!-- SCREEN 2: inside a company -->
+          <div id="companyDetailScreen">
+            <div class="section-title">Company</div>
+            <div class="toolbar">
+              <strong id="currentCompanyHeading" style="font-size: 13px"></strong>
+              <div style="flex: 1"></div>
+              <button id="backBtn" class="btn-soft">Back to company list</button>
             </div>
 
-            <!-- SCREEN 1: company selection -->
-            <div id="companyScreen">
-                <div class="section-title">Select company</div>
-                <div class="company-panel" style="max-width:480px;margin:0 auto;">
-                    <input id="companySearch" type="text"
-                           placeholder="Search company (code / name)...">
-                    <div id="companyList"></div>
-                </div>
-                <div class="status-bar" id="statusHome">
-                    Type to search and select a company.
-                </div>
+            <!-- New sheet-from-template toolbar -->
+            <div class="toolbar">
+              <label
+                for="newSheetName"
+                style="font-size: 12px; color: #64748b"
+                >New sheet from APR</label
+              >
+              <input
+                id="newSheetName"
+                type="text"
+                placeholder="e.g. DEC 25"
+                style="
+                  padding: 4px 8px;
+                  border-radius: 8px;
+                  border: 1px solid #cbd5e1;
+                  font-size: 12px;
+                "
+              />
+              <button id="cloneSheetBtn" class="btn-soft">Create</button>
             </div>
 
-            <!-- SCREEN 2: inside a company -->
-            <div id="companyDetailScreen">
-                <div class="section-title">Company</div>
-                <div class="toolbar">
-                    <strong id="currentCompanyHeading" style="font-size:13px;"></strong>
-                    <div style="flex:1;"></div>
-                    <button id="backBtn" class="btn-soft">Back to company list</button>
-                </div>
+            <div class="section-title">Sheets</div>
+            <div id="sheetTabs" class="sheet-tabs"></div>
 
-                <!-- New sheet-from-template toolbar -->
-                <div class="toolbar">
-                    <label for="newSheetName" style="font-size:12px;color:#64748b;">
-                        New sheet from APR
-                    </label>
-                    <input id="newSheetName" type="text"
-                           placeholder="e.g. DEC 25"
-                           style="padding:4px 8px;border-radius:8px;border:1px solid #cbd5e1;font-size:12px;">
-                    <button id="cloneSheetBtn" class="btn-soft">Create</button>
-                </div>
+            <div class="toolbar">
+              <button id="reloadBtn" class="btn-soft">Reload</button>
+              <button id="saveBtn" class="btn-primary">Save changes</button>
+            </div>
 
-                <div class="section-title">Sheets</div>
-                <div id="sheetTabs" class="sheet-tabs"></div>
+            <div class="status-bar status" id="statusLoading">Loading...</div>
 
-                <div class="toolbar">
-                    <button id="reloadBtn" class="btn-soft">Reload</button>
-                    <button id="saveBtn" class="btn-primary">Save changes</button>
-                </div>
-
-                <div class="status-bar" id="status">Loading...</div>
-
-                <div class="table-shell">
-                    <div class="table-scroll">
-                        <table id="sheetTable"></table>
-                    </div>
-                </div>
-
-                <!-- Actions: clone (already above) + lock with PDF -->
-                <div class="actions-panel">
-                    <div class="actions-grid">
-                        <!-- Left: info / note -->
-                        <div>
-                            <div class="section-title" style="margin-top:0;">Lock with 3B PDF</div>
-                            <div class="subtle">
-                                Select a company and month sheet above, then upload the
-                                filed GSTR-3B PDF here. The system will:
-                                <br>- Compare Sales, RCM, ITC & Reversal with the sheet
-                                <br>- Lock the sheet if all match
-                                <br>- Upload the PDF into Drive under that company folder
-                            </div>
-                        </div>
-
-                        <!-- Right: form -->
-                        <div>
-                            <form id="lockMonthForm" enctype="multipart/form-data">
-                                <div class="field">
-                                    <label>Current company</label>
-                                    <input type="text" id="lockCompanyDisplay" readonly>
-                                </div>
-                                <div class="field">
-                                    <label>Current sheet (month)</label>
-                                    <input type="text" id="lockSheetDisplay" readonly>
-                                </div>
-                                <div class="field">
-                                    <label for="lockPassword">Lock password</label>
-                                    <input type="password" id="lockPassword" name="password"
-                                           placeholder="Enter lock password">
-                                </div>
-                                <div class="field">
-                                    <label for="lockPdfFile">GSTR-3B PDF</label>
-                                    <input type="file" id="lockPdfFile" name="pdf_file" accept=".pdf">
-                                </div>
-                                <div style="margin-top:6px;">
-                                    <button type="submit" class="btn-primary">Upload & Check</button>
-                                </div>
-                            </form>
-                            <div id="lockMonthResult" class="subtle" style="margin-top:4px;"></div>
-                        </div>
-                    </div>
-                </div>
-
-            </div> <!-- /companyDetailScreen -->
-
+            <div class="table-shell">
+              <div class="table-scroll">
+                <table id="sheetTable">
+                  <tbody id="sheetBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
     </div>
-</div>
 
-<script src="{{ url_for('static', filename='app.js') }}"></script>
-<script>
-    // Wire the lock-month form to /lock-month.
-    // Assumes app.js defines these globals:
-    //   window.currentCompanyId
-    //   window.currentCompanyName
-    //   window.currentSheetName
-
-    const lockForm = document.getElementById('lockMonthForm');
-    const lockCompanyDisplay = document.getElementById('lockCompanyDisplay');
-    const lockSheetDisplay = document.getElementById('lockSheetDisplay');
-    const lockResultDiv = document.getElementById('lockMonthResult');
-    const lockPasswordInput = document.getElementById('lockPassword');
-    const lockPdfInput = document.getElementById('lockPdfFile');
-
-    function refreshLockDisplays() {
-        if (window.currentCompanyId && window.currentCompanyName) {
-            lockCompanyDisplay.value = window.currentCompanyId + " - " + window.currentCompanyName;
-        } else {
-            lockCompanyDisplay.value = "";
-        }
-        if (window.currentSheetName) {
-            lockSheetDisplay.value = window.currentSheetName;
-        } else {
-            lockSheetDisplay.value = "";
-        }
-    }
-
-    // Basic refresh on any click; you can also call refreshLockDisplays()
-    // from selectCompany/selectSheetTab inside app.js for more accuracy.
-    document.addEventListener('click', refreshLockDisplays);
-
-    lockForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        lockResultDiv.textContent = '';
-
-        const cid = window.currentCompanyId;
-        const sheet = window.currentSheetName;
-        const pwd = lockPasswordInput.value;
-        const file = lockPdfInput.files[0];
-
-        if (!cid || !sheet) {
-            lockResultDiv.textContent = 'Select a company and sheet first.';
-            return;
-        }
-        if (!pwd) {
-            lockResultDiv.textContent = 'Enter the lock password.';
-            return;
-        }
-        if (!file) {
-            lockResultDiv.textContent = 'Choose a GSTR-3B PDF file.';
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('company_id', cid);
-        formData.append('sheet_name', sheet);
-        formData.append('password', pwd);
-        formData.append('pdf_file', file);
-
-        lockResultDiv.textContent = 'Uploading and checking...';
-
-        try {
-            const res = await fetch('/lock-month', {
-                method: 'POST',
-                body: formData
-            });
-            const json = await res.json();
-            if (!res.ok) {
-                lockResultDiv.textContent = json.error || 'Error locking month.';
-                return;
-            }
-            lockResultDiv.textContent =
-                `Status: ${json.status}. ` +
-                (json.drive_link ? `PDF saved to Drive: ${json.drive_link}` : '');
-        } catch (err) {
-            console.error(err);
-            lockResultDiv.textContent = 'Error calling /lock-month.';
-        }
-    });
-</script>
-</body>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
 </html>
