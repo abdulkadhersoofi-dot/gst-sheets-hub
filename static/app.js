@@ -128,7 +128,7 @@ function renderSheet() {
         td.contentEditable = "true";
       } else {
         td.contentEditable = "false";
-        td.classList.add("locked-cell"); // yellow in CSS
+        td.classList.add("locked-cell"); // yellow styling from CSS
       }
 
       td.dataset.row = rIdx;
@@ -158,17 +158,14 @@ async function insertRowBelow(rowIndex) {
   if (!currentCompanyId || !currentSheetName) return;
 
   setStatus("statusLoading", "Inserting row...");
-  const resp = await fetch(
-    `/sheet/${currentCompanyId}/insert-row`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sheet: currentSheetName,
-        row_index: rowIndex,
-      }),
-    }
-  );
+  const resp = await fetch(`/sheet/${currentCompanyId}/insert-row`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sheet: currentSheetName,
+      row_index: rowIndex,
+    }),
+  });
 
   const data = await resp.json();
   if (!resp.ok) {
@@ -177,7 +174,7 @@ async function insertRowBelow(rowIndex) {
     return;
   }
 
-  // Refresh local state
+  // Refresh local state with returned data
   sheetValues = data.values || [];
   editableMask = data.editable || [];
   renderSheet();
@@ -218,6 +215,14 @@ async function saveChanges() {
   setStatus("statusLoading", "Saved successfully.");
 }
 
+// ---------- SAVE & RELOAD ----------
+async function saveAndReload() {
+  await saveChanges();
+  if (currentSheetName) {
+    await loadSheet(currentSheetName);
+  }
+}
+
 // ---------- CLONE SHEET (APR -> NEW MONTH) ----------
 async function cloneSheetFromApr() {
   if (!currentCompanyId) return;
@@ -234,7 +239,7 @@ async function cloneSheetFromApr() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      source_sheet: "APR 25", // adjust if needed
+      source_sheet: "APR 25", // adjust template sheet name if needed
       new_sheet: newSheetName,
     }),
   });
@@ -261,16 +266,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const backBtn = document.getElementById("backBtn");
   if (backBtn) backBtn.onclick = showCompanyScreen;
 
-  // Reload button
-  const reloadBtn = document.getElementById("reloadBtn");
-  if (reloadBtn)
-    reloadBtn.onclick = () => {
-      if (currentSheetName) loadSheet(currentSheetName);
-    };
-
-  // Save button
-  const saveBtn = document.getElementById("saveBtn");
-  if (saveBtn) saveBtn.onclick = saveChanges;
+  // Single Save & Reload button
+  const saveReloadBtn = document.getElementById("saveReloadBtn");
+  if (saveReloadBtn) saveReloadBtn.onclick = saveAndReload;
 
   // Clone sheet button
   const cloneSheetBtn = document.getElementById("cloneSheetBtn");
