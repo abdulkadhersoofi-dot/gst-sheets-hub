@@ -16,7 +16,7 @@ if not SERVICE_ACCOUNT_JSON:
     raise RuntimeError("SERVICE_ACCOUNT_JSON env var is not set")
 
 creds_info = json.loads(SERVICE_ACCOUNT_JSON)
-gc = gspread.service_account_from_dict(creds_info)  # gspread supports dict auth [web:46]
+gc = gspread.service_account_from_dict(creds_info)  # supported by gspread [web:133]
 
 # ---------- FLASK APP ----------
 app = Flask(__name__)
@@ -85,4 +85,302 @@ def list_company_sheets(company_id):
     if not spreadsheet_id:
         return jsonify({"error": "SpreadsheetId missing in Master Config"}), 400
 
-    sh = gc.open_by_key
+    sh = gc.open_by_key(spreadsheet_id)
+    sheet_list = [
+        {"sheetName": ws.title, "index": ws.index}
+        for ws in sh.worksheets()
+    ]  # worksheets() lists all tabs [web:170]
+    return jsonify(sheet_list)
+
+
+# ---------- COMMON: build editable mask (lock formulas + non-numeric text) ----------
+
+def build_editable_mask(values_display, values_formula):
+    """
+    Returns a 2D list of booleans:
+      - False for formulas and non-numeric text (headings/labels)
+      - True  for numeric values and empty cells
+    """
+    editable_mask = []
+    for row_disp, row_form in zip(values_display, values_formula):
+        row_mask = []
+        for disp, form in zip(row_disp, row_form):
+            # 1) Lock formulas
+            if isinstance(form, str) and form.startswith("="):
+                row_mask.append(False)
+                continue
+
+            # 2) Lock non-numeric (text) cells = headings/labels
+            s = str(disp).strip()
+            if s == "":
+                # Empty cell -> editable
+                row_mask.append(True)
+            else:
+                try:
+                    float(s.replace(",", ""))
+                    # Numeric value -> editable
+                    row_mask.append(True)
+                except ValueError:
+                    # Not numeric -> heading/label/text -> lock
+                    row_mask.append(False)
+        editable_mask.append(row_mask)
+    return editable_mask
+
+
+# ---------------- SHEET READ ---------------- #
+
+@app.route("/sheet/<company_id>", methods=["GET"])
+def get_company_sheet(company_id):
+    """
+    Return full sheet values + editable mask for a given company + sheet.
+
+    Query parameter:
+      ?sheet=<sheet_name>
+    """
+    sheet_name = request.args.get("sheet")
+    if not sheet_name:
+        return jsonify({"error": "sheet parameter is required"}), 400
+
+    records = load_companies()
+    record = next((r for r in records if r.get("CompanyId") == company_id), None)
+    if not record:
+        return jsonify({"error": "Company not found"}), 404
+
+    spreadsheet_id = record.get("SpreadsheetId")
+    if not spreadsheet_id:
+        return jsonify({"error": "SpreadsheetId missing in Master Config"}), 400
+
+    sh = gc.open_by_key(spreadsheet_id)
+    try:
+        ws = sh.worksheet(sheet_name)
+    except Exception as e:
+        return jsonify({"error": f"Sheet '{sheet_name}' not found: {e}"}), 404
+
+    # 1) Display values (what user sees)
+    values_display = ws.get_all_values()
+
+    # 2) Same range, but formulas preserved
+    values_formula = ws.get_values(value_render_option=ValueRenderOption.formula)
+
+    editable_mask = build_editable_mask(values_display, values_formula)
+
+    return jsonify(
+        {
+            "company": {
+                "CompanyId": record.get("CompanyId"),
+                "CompanyName": record.get("CompanyName"),
+                "SpreadsheetId": spreadsheet_id,
+            },
+            "sheet": sheet_name,
+            "values": values_display,
+            "editable": editable_mask,
+        }
+    )
+
+
+# ---------------- SHEET UPDATE ---------------- #
+
+@app.route("/sheet/<company_id>/update", methods=["POST"])
+def update_company_sheet(company_id):
+    """
+    Overwrite only editable cells in a given sheet, keeping formulas and locked
+    text untouched.
+
+    URL:
+      POST /sheet/<company_id>/update?sheet=<sheet_name>
+    """
+    sheet_name = request.args.get("sheet")
+    if not sheet_name:
+        return jsonify({"error": "sheet parameter is required"}), 400
+
+    payload = request.get_json(force=True) or {}
+    new_values = payload.get("values")
+    editable = payload.get("editable")
+
+    if not isinstance(new_values, list) or not isinstance(editable, list):
+        return jsonify({"error": "values and editable must be 2D lists"}), 400
+
+    records = load_companies()
+    record = next((r for r in records if r.get("CompanyId") == company_id), None)
+    if not record:
+        return jsonify({"error": "Company not found"}), 404
+
+    spreadsheet_id = record.get("SpreadsheetId")
+    if not spreadsheet_id:
+        return jsonify({"error": "SpreadsheetId missing in Master Config"}), 400
+
+    sh = gc.open_by_key(spreadsheet_id)
+    try:
+        ws = sh.worksheet(sheet_name)
+    except Exception as e:
+        return jsonify({"error": f"Sheet '{sheet_name}' not found: {e}"}), 404
+
+    # Get current sheet with formulas preserved
+    current = ws.get_values(value_render_option=ValueRenderOption.formula)
+
+    # Merge new values into current only where editable == True
+    rows = min(len(current), len(new_values))
+    for r in range(rows):
+        cols = min(len(current[r]), len(new_values[r]))
+        for c in range(cols):
+            can_edit = (
+                r < len(editable)
+                and c < len(editable[r])
+                and editable[r][c] is True
+            )
+            if can_edit:
+                current[r][c] = new_values[r][c]
+
+    # Write merged data back starting at A1
+    ws.update("A1", current, value_input_option="USER_ENTERED")
+    return jsonify({"status": "ok", "rows": rows, "sheet": sheet_name})
+
+
+# ---------------- INSERT ROW BELOW ---------------- #
+
+@app.route("/sheet/<company_id>/insert-row", methods=["POST"])
+def insert_row(company_id):
+    """
+    Insert a new empty row *below* a given row index and shift everything down.
+
+    Body JSON:
+      {
+        "sheet": "<sheet_name>",
+        "row_index": <0-based index in UI>
+      }
+
+    Google Sheets automatically adjusts SUM() and other ranges when rows
+    are inserted inside those ranges [web:173].
+    """
+    payload = request.get_json(force=True) or {}
+    sheet_name = payload.get("sheet")
+    row_index = payload.get("row_index")
+
+    if sheet_name is None or row_index is None:
+        return jsonify({"error": "sheet and row_index are required"}), 400
+
+    # UI uses 0-based. Sheets is 1-based. Insert *below* => +2
+    insert_at = int(row_index) + 2
+
+    records = load_companies()
+    record = next((r for r in records if r.get("CompanyId") == company_id), None)
+    if not record:
+        return jsonify({"error": "Company not found"}), 404
+
+    spreadsheet_id = record.get("SpreadsheetId")
+    if not spreadsheet_id:
+        return jsonify({"error": "SpreadsheetId missing in Master Config"}), 400
+
+    sh = gc.open_by_key(spreadsheet_id)
+    try:
+        ws = sh.worksheet(sheet_name)
+    except Exception as e:
+        return jsonify({"error": f"Sheet '{sheet_name}' not found: {e}"}), 404
+
+    # Insert a completely empty row; formulas/ranges shift automatically
+    ws.insert_row([], index=insert_at)
+
+    # Re-read sheet and mask so frontend stays in sync
+    values_display = ws.get_all_values()
+    values_formula = ws.get_values(value_render_option=ValueRenderOption.formula)
+    editable_mask = build_editable_mask(values_display, values_formula)
+
+    return jsonify(
+        {
+            "sheet": sheet_name,
+            "values": values_display,
+            "editable": editable_mask,
+        }
+    )
+
+
+# ---------------- SHEET CLONE (APR -> NEW MONTH) ---------------- #
+
+@app.route("/sheet/<company_id>/clone", methods=["POST"])
+def clone_company_sheet(company_id):
+    """
+    Create a new worksheet in the company's spreadsheet, based on a template
+    sheet (e.g. 'APR 25'):
+
+    - Copies all headings, formats, and formulas.
+    - Clears only numeric values in the new sheet.
+      * Formulas are kept.
+      * Any text (headings, labels) is kept.
+    """
+    payload = request.get_json(force=True) or {}
+    source_name = payload.get("source_sheet")
+    new_name = payload.get("new_sheet")
+
+    if not source_name or not new_name:
+        return jsonify({"error": "source_sheet and new_sheet are required"}), 400
+
+    records = load_companies()
+    record = next((r for r in records if r.get("CompanyId") == company_id), None)
+    if not record:
+        return jsonify({"error": "Company not found"}), 404
+
+    spreadsheet_id = record.get("SpreadsheetId")
+    if not spreadsheet_id:
+        return jsonify({"error": "SpreadsheetId missing in Master Config"}), 400
+
+    sh = gc.open_by_key(spreadsheet_id)
+
+    # 1) Get source worksheet
+    try:
+        src_ws = sh.worksheet(source_name)
+    except Exception as e:
+        return jsonify({"error": f"Source sheet '{source_name}' not found: {e}"}), 404
+
+    # 2) Duplicate entire sheet structure (formats + formulas + values)
+    try:
+        duplicated_ws = sh.duplicate_sheet(src_ws.id, new_sheet_name=new_name)
+    except APIError as e:
+        return jsonify({"error": f"Cannot create sheet '{new_name}': {e}"}), 400
+
+    new_ws_obj = duplicated_ws  # Worksheet instance.
+
+    # 3) Get formulas/values from new sheet
+    formulas = new_ws_obj.get_values(
+        value_render_option=ValueRenderOption.formula
+    )
+
+    # 4) Build cleaned matrix:
+    #    - keep all formulas
+    #    - keep all text (headings)
+    #    - clear only numeric values
+    cleaned = []
+    for row in formulas:
+        cleaned_row = []
+        for val in row:
+            # keep formulas
+            if isinstance(val, str) and val.startswith("="):
+                cleaned_row.append(val)
+            else:
+                s = str(val).strip()
+                if s == "":
+                    cleaned_row.append("")
+                else:
+                    try:
+                        float(s.replace(",", ""))
+                        # numeric -> clear
+                        cleaned_row.append("")
+                    except (ValueError, TypeError):
+                        # not numeric -> heading/label/text -> keep
+                        cleaned_row.append(val)
+        cleaned.append(cleaned_row)
+
+    # 5) Write cleaned data back to new sheet
+    new_ws_obj.update("A1", cleaned, value_input_option="USER_ENTERED")
+
+    return jsonify(
+        {
+            "status": "ok",
+            "company": company_id,
+            "source_sheet": source_name,
+            "new_sheet": new_name,
+        }
+    )
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
